@@ -1,0 +1,95 @@
+---
+##################################################################################
+#
+# NAME : MWP CentOS 7.9 OS Installation on Power Edge R740/R640 servers
+# TASK : Auto MWP CentOS 7.9 Installation
+# Server : Dell R740/R640
+# MWP Version : 21.4.1
+# Playbook Version : 1.0
+# Playbook Owner : Mavenir MWP Platform CoD
+# Playbook Author : Rohit Mehta
+# Reviewed by : Hemant Patel
+# Approved by : Manish Sharma
+#
+###################################################################################
+
+- gather_facts: false
+  name: MWP CentOS 7.9 OS Installation on Power Edge R740/R640 servers
+  user: root
+  hosts: idrac_hosts
+  become: yes
+  vars:
+    URL_OS1: http://10.69.88.201/centos79/centos_2009_x86_64-generic-210915-1_0_0_1_vinstall_nodatapart.iso
+    URL_OS2: http://10.69.88.201/centos79/centos_2009_x86_64-generic-210915-1_0_0_1_vinstall_nodatapart_sdb.iso
+
+  vars_prompt:
+    name: "confirmation"
+    prompt: "Are you sure you want to run this playbook? Answer with 'YES'"
+    default: "NO"
+    private: no
+
+  tasks:
+
+    - debug: 
+        msg: iDRAC IP is {{ ansible_ssh_host }}
+
+    - name: Check Confirmation
+      fail: msg="Playbook run confirmation failed"
+      when: confirmation != "YES"
+
+    - name: Please Verify iDRAC IPs in above list as per Host Inventory file before continuing
+      pause:
+        minutes: 100000
+
+    - name: Clear All the Jobs
+      raw: racadm jobqueue delete --all
+      register: result_jobqueue
+    - debug: var=result_jobqueue.stdout_lines
+
+    - name: BIOS boot sequence is being configured to HDD First
+      raw: "racadm set BIOS.BiosBootSettings.bootseq HardDisk.List.1-1"
+
+    - name: Create a Job for BIOS boot sequence to be set
+      raw: racadm jobqueue create BIOS.Setup.1-1
+      register: jobqueue
+    - debug: var=jobqueue.stdout_lines
+
+    - name: Powercycle the server to execute the job for BIOS boot sequence to be set
+      raw: racadm serveraction powercycle
+      register: server_reboot
+      when: jobqueue != ''
+    - debug: var=server_reboot.stdout_lines
+
+    - name: Wait for BIOS boot sequence job to be completed
+      raw: racadm jobqueue view
+      register: jobstatus
+      until: jobstatus.stdout.find("Running") <= 0 and jobstatus.stdout.find("scheduled") <= 0 and jobstatus.stdout.find("New") <= 0
+      retries: 20
+      delay: 30
+      when: '"Server power operation initiated successfully" in server_reboot.stdout_lines'
+    - debug: var=jobstatus.stdout_lines
+
+    - name: Mount Centos 7.9 iso for Dell PREC 730
+      raw: "racadm remoteimage -c -l '{{URL_OS1}}'"
+      when: inventory_hostname in groups["p730_servers"]
+
+    - name: Mount Centos 7.9 iso for Dell PREC 750
+      raw: "racadm remoteimage -c -l '{{URL_OS2}}'"
+      when: inventory_hostname in groups["p750_servers"]
+
+    - name: Set Vitual media as one time boot media
+      raw: "racadm set iDRAC.VirtualMedia.BootOnce 1"
+
+    - name: Set server boot with VCD-DVD
+      raw: "racadm set iDRAC.ServerBoot.FirstBootDevice VCD-DVD"
+
+    - name: Server is being rebooted for OS Installation to start on next boot form CD/DVD
+      raw: "racadm serveraction powercycle"
+
+    - name: Pause for 35 Minute so that OS installation will be completed
+      pause:
+        minutes: 35
+
+    - debug: 
+        msg: Please verify OS Installation via iDRAC Console of {{ ansible_ssh_host }}
+

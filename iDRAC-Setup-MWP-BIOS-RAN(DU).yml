@@ -1,0 +1,118 @@
+---
+##################################################################################
+#
+# NAME : MWP BIOS Configuration for MWP RAN(DU) Setup
+# TASK : Configuring BIOS settings for RAN(DU) setup
+# Server : Dell R740/R640
+# MWP Version : 21.4.1
+# Playbook Version : 1.0
+# Playbook Owner : Mavenir MWP Platform CoD
+# Playbook Author : Rohit Mehta
+# Reviewed by : Hemant Patel
+# Approved by : Manish Sharma
+#
+###################################################################################
+
+- gather_facts: false
+  name: MWP BIOS Configuration for MWP RAN(DU) Setup
+  hosts: idrac_hosts
+  become_user: root
+  become: yes
+  vars:
+    target_array:
+      - { target: 'BIOS.BIosBootSettings.BootMode', job_target: 'Bios.Setup.1-1', target_set: 'BootMode', value: 'Bios' }
+      - { target: 'BIOS.SysProfileSettings.SysProfile', job_target: 'Bios.Setup.1-1', target_set: 'SysProfile', value: 'Custom' }
+      - { target: 'BIOS.ProcSettings.LogicalProc', job_target: 'Bios.Setup.1-1', target_set: 'LogicalProc', value: 'Enabled' }
+      - { target: 'BIOS.ProcSettings.Procvirtualization', job_target: 'Bios.Setup.1-1', target_set: 'Procvirtualization', value: 'Enabled' }
+      - { target: 'BIOS.IntegratedDevices.SriovGlobalEnable', job_target: 'Bios.Setup.1-1', target_set: 'SriovGlobalEnable', value: 'Enabled' }
+      - { target: 'BIOS.SysProfileSettings.ProcPwrPerf', job_target: 'Bios.Setup.1-1', target_set: 'ProcPwrPerf', value: 'OsDbpm' }
+      - { target: 'BIOS.SysProfileSettings.MonitorMwait', job_target: 'Bios.Setup.1-1', target_set: 'MonitorMwait', value: 'Enabled' }
+      - { target: 'BIOS.SysProfileSettings.MemFrequency', job_target: 'Bios.Setup.1-1', target_set: 'MemFrequency', value: 'MaxPerf' }
+      - { target: 'BIOS.SysProfileSettings.ProcTurboMode', job_target: 'Bios.Setup.1-1', target_set: 'ProcTurboMode', value: 'Enabled' }
+      - { target: 'BIOS.SysProfileSettings.ProcC1E', job_target: 'Bios.Setup.1-1', target_set: 'ProcC1E', value: 'Disabled' }
+      - { target: 'BIOS.SysProfileSettings.ProcCStates', job_target: 'Bios.Setup.1-1', target_set: 'ProcCStates', value: 'Enabled' }
+      - { target: 'BIOS.SysProfileSettings.PcieAspmL1', job_target: 'Bios.Setup.1-1', target_set: 'PcieAspmL1', value: 'Disabled' }
+      - { target: 'BIOS.MemSettings.NodeInterleave', job_target: 'Bios.Setup.1-1', target_set: 'NodeInterleave', value: 'Disabled' }
+      - { target: 'BIOS.ProcSettings.LlcPrefetch', job_target: 'Bios.Setup.1-1', target_set: 'LlcPrefetch', value: 'Enabled' }
+      - { target: 'BIOS.ProcSettings.ProcConfigTdp', job_target: 'Bios.Setup.1-1', target_set: 'ProcConfigTdp', value: 'Level2' }
+      - { target: 'BIOS.ProcSettings.ProcX2Apic', job_target: 'Bios.Setup.1-1', target_set: 'ProcX2Apic', value: 'Enabled' }
+      - { target: 'BIOS.ProcSettings.AvxIccpPregrant', job_target: 'Bios.Setup.1-1', target_set: 'AvxIccpPregrant', value: 'IccpHeavy512' }
+      - { target: 'BIOS.IntegratedDevices.MmioAbove4Gb', job_target: 'Bios.Setup.1-1', target_set: 'MmioAbove4Gb', value: 'Enabled' }
+      - { target: 'BIOS.SysSecurity.AcPwrRcvry', job_target: 'Bios.Setup.1-1', target_set: 'AcPwrRcvry', value: 'On' }
+      - { target: 'BIOS.SysProfileSettings.UncoreFrequency', job_target: 'Bios.Setup.1-1', target_set: 'UncoreFrequency', value: 'MaxUFS' }
+      - { target: 'BIOS.SysProfileSettings.EnergyPerformanceBias', job_target: 'Bios.Setup.1-1', target_set: 'EnergyPerformanceBias', value: 'MaxPower' }
+  vars_prompt:
+    name: "confirmation"
+    prompt: "Are you sure you want to run this playbook? Answer with 'YES'"
+    default: "NO"
+    private: no
+
+  tasks: 
+    - debug:
+        msg: iDRAC IP is {{ ansible_ssh_host }}
+
+    - name: Check Confirmation
+      fail: msg="Playbook run confirmation failed"
+      when: confirmation != "YES"
+
+    - name: Please Verify iDRAC IPs befor contunuing 
+      pause:
+        minutes: 100000
+
+    - name: Clear All the Jobs
+      raw: racadm jobqueue delete --all
+      register: result_jobqueue
+    - debug: var=result_jobqueue.stdout_lines
+
+    - name: Get Status of the BIOS Target
+      raw: racadm get "{{ item.target }}"
+      with_items:
+        - "{{ target_array }}"
+      register: target_status
+    - debug: msg="{{ target_array | map(attribute='target_set') | list }}"
+    - debug: msg="{{ target_status.results | map(attribute='stdout_lines') | list }}"
+    
+    - name: Executing the racadm set on the targets to have the expected value
+      raw: racadm set "{{ item.0.target }}" "{{ item.0.value }}"
+      #when: '("Pending" in {{item.1.stdout_lines}}) or ({{item.0.target_set}}"="{{item.0.value}} not in {{item.1.stdout_lines}})'
+      #failed_when: '"ERROR" in item.1.stdout or "Invalid" in item.1.stdout'
+      failed_when: '"ERROR" in set_status.stdout or "Invalid" in set_status.stdout'
+      when: "'Pending' in item.1.stdout_lines or ( (item.0.target_set ~ '=' ~ item.0.value) not in item.1.stdout_lines )"
+      with_together:
+        - "{{ target_array }}"
+        - "{{ target_status.results }}"
+      register: set_status
+    #- debug: var=set_status
+
+    - name: Create a Job for New BIOS settings to be set
+      raw: racadm jobqueue create BIOS.Setup.1-1
+      #failed_when: '"ERROR" in jobqueue.stdout'
+      register: jobqueue
+    - debug: var=jobqueue.stdout_lines
+
+    - name: Powercycle the server to execute the job for New BIOS setting to be set
+      raw: racadm serveraction powercycle
+      register: server_reboot
+      when: jobqueue != ''
+    - debug: var=server_reboot.stdout_lines
+
+    - name: Wait for BIOS Setting Job to be completed
+      raw: racadm jobqueue view
+      register: jobstatus
+      until: jobstatus.stdout.find("Running") <= 0 and jobstatus.stdout.find("scheduled") <= 0 and jobstatus.stdout.find("New") <= 0
+      retries: 20
+      delay: 30
+      when: '"Server power operation initiated successfully" in server_reboot.stdout_lines'
+    - debug: var=jobstatus.stdout_lines
+
+    - name: View All the Jobs
+      raw: racadm jobqueue view
+      register: result_jobqueue
+    - debug: var=result_jobqueue.stdout_lines
+
+    - name: Get Status of the BIOS Target
+      raw: racadm get "{{ item.target }}"
+      with_items:
+        - "{{ target_array }}"
+      register: target_status
+    - debug: msg="{{ target_status.results | map(attribute='stdout_lines') | list }}"

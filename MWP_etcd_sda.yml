@@ -1,0 +1,73 @@
+---
+##################################################################################
+##
+## NAME : ETCD DISK Configuration on Master Nodes
+## TASK : ETCD DISK Configuration on Master Nodes
+## Server : Dell R740/R640
+## MWP Version : 21.4.1
+## Playbook Version : 1.0
+## Playbook Owner : Mavenir MWP Platform CoD
+## Playbook Author : Rohit Mehta
+## Reviewed by : Hemant Patel
+## Approved by : Manish Sharma
+##
+###################################################################################
+
+- gather_facts: false
+  name: ETCD DISK Configuration on Master Nodes
+  hosts: master_servers
+  user: root
+  become: yes
+  vars:
+    ETCD_DISK: /dev/sda
+
+  vars_prompt:
+    name: "confirmation"
+    prompt: "Are you sure you want to run this playbook? Answer with 'YES'"
+    default: "NO"
+    private: no
+
+  tasks:
+
+    - debug:
+        msg: MASTER OAM IP is {{ ansible_ssh_host }}
+
+    - name: Check Confirmation
+      fail: msg="Playbook run confirmation failed"
+      when: confirmation != "YES"
+
+    - name: Please Verify MASTER IPs in above list as per Host Inventory file before continuing
+      pause:
+        minutes: 100000
+
+    - name: creating etcd directory
+      file:
+        path: /etcd
+        state: directory
+
+    - name: creating file system
+      command: mkfs.xfs -f {{ETCD_DISK}}
+
+    - name: mounting file system in fstab
+      lineinfile:
+        path: /etc/fstab
+        line: '{{ETCD_DISK}} /etcd xfs defaults        0 0'
+
+    - name: mounting etcd on sda
+      command: mount -a
+
+    - name: creating "/etcd/data" directory
+      file:
+        path: /etcd/data
+        state: directory
+
+    - name: creating "etcd/backup" directory
+      file:
+        path: /etcd/backup
+        state: directory
+
+    - name: Verify ETCD partition
+      command: lsblk
+      register: lsblk
+    - debug: var=lsblk.stdout_lines
+

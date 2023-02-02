@@ -1,0 +1,94 @@
+---
+##################################################################################
+#
+# NAME : MWP Pre Service Setup 
+# TASK : NTP, CHRONYD, HTTPD Service Setup
+# Server : Dell R740/R640
+# MWP Version : 21.4.1
+# Playbook Version : 1.0
+# Playbook Owner : Mavenir MWP Platform CoD
+# Playbook Author : Rohit Mehta
+# Reviewed by : Hemant Patel
+# Approved by : Manish Sharma
+#
+###################################################################################
+
+- gather_facts: false
+  name: MWP Pre Setup
+  user: root
+  hosts: mwp_hosts
+  become: yes
+  vars:
+    NTP_SERVER: 10.1.20.57
+    TIME_ZONE: UTC
+
+  vars_prompt:
+    name: "confirmation"
+    prompt: "Are you sure you want to run this playbook? Answer with 'YES'"
+    default: "NO"
+    private: no
+
+  tasks:
+
+    - debug: 
+        msg: MWP host OAM IP is {{ ansible_ssh_host }}
+
+    - name: Check Confirmation
+      fail: msg="Playbook run confirmation failed"
+      when: confirmation != "YES"
+
+    - name: Please Verify MWP host OAM IPs in above list as per Host Inventory file before continuing
+      pause:
+        minutes: 100000
+
+    - name: Empty /etc/resolv.conf
+      copy: dest=/etc/resolv.conf content='' force=yes
+
+    - name: Make sure httpd is stopped
+      service: name=httpd state=stopped
+
+    - name: Make sure Chrony is stopped 
+      service: name=chronyd state=stopped enabled=no masked=yes
+      tags: chrony
+
+    - name: set timezone
+      shell: timedatectl set-timezone {{TIME_ZONE}}
+
+    - name: Copy over the NTP configuration
+      template: src=./templates/ntp.j2 dest=/etc/ntp.conf
+      notify:
+      - restart ntpd
+      tags: ntp
+ 
+    - name: Make sure NTP is stopped
+      service: name=ntpd state=stopped enabled=yes
+      tags: ntp
+ 
+    - name: Sync time initialy
+      shell: ntpdate {{NTP_SERVER}}
+      tags: ntp
+
+    - name: Make sure NTP is started up
+      service: name=ntpd state=started enabled=yes
+      tags: ntp
+
+    - name: Sync hwclock
+      shell: hwclock -w
+      tags: ntp
+
+    - name: Verify time
+      shell: date 
+      tags: ntp
+      register: ntpdate
+    - debug: var=ntpdate.stdout_lines
+
+    - name: Verify NTP Server
+      shell:  ntpq -p
+      tags: ntp
+      register: ntpq
+    - debug: var=ntpq.stdout_lines
+
+
+  handlers:
+  - name: restart ntpd
+    service: name=ntpd state=restarted

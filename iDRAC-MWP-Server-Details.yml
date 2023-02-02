@@ -1,0 +1,75 @@
+---
+##################################################################################
+#
+# NAME : MWP iDRAC Server Details and Information 
+# TASK : To get iDRAC Server Details and Information
+# Server : Dell R740/R640
+# MWP Version : 21.4.1
+# Playbook Version : 1.0
+# Playbook Owner : Mavenir MWP Platform CoD
+# Playbook Author : Rohit Mehta
+# Reviewed by : Hemant Patel
+# Approved by : Manish Sharma
+#
+###################################################################################
+
+- gather_facts: false
+  name: MWP iDRAC Server Details and Information
+  hosts: idrac_hosts
+  user: root
+  become: yes
+  vars:
+    RAID_CONT: RAID.Slot.5-1
+
+  tasks:
+
+    - name: Server Power
+      raw: racadm serveraction powerstatus
+      register: result
+    - debug:
+        var: result.stdout_lines
+
+    - name: Server Info
+      raw: getsysinfo -s 
+      register: result
+    - debug:
+        var: result.stdout_lines
+
+    - name: BIOS Mode 
+      raw: racadm get BIOS.BiosBootSettings.BootMode
+      register: result
+    - debug:
+        var: result.stdout_lines
+
+    - name: System Profile Setting
+      raw: get BIOS.SysProfileSettings.SysProfile
+      register: bios
+    - debug: var=bios.stdout_lines
+
+    - name: Logical Processor (HyperThreading)
+      raw: get BIOS.ProcSettings.LogicalProc
+      register: bios
+    - debug: var=bios.stdout_lines
+
+    - name: Virtualization Technology (VT)
+      raw: get BIOS.ProcSettings.Procvirtualization
+      register: bios
+    - debug: var=bios.stdout_lines
+
+    - name: Sriov Global
+      raw: get BIOS.IntegratedDevices.SriovGlobalEnable
+      register: bios
+    - debug: var=bios.stdout_lines
+
+    - name: RAID Controller Details
+      raw: racadm storage get controllers -o -p Name
+      register: result
+    - debug:
+        var: result.stdout_lines
+
+    - name: Pysical DISK Details
+      raw: storage get pdisks -o -p Status,State,MediaType,Size
+      register: result
+    - debug:
+        var: result.stdout_lines
+

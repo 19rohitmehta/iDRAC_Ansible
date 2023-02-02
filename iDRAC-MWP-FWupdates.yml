@@ -1,0 +1,156 @@
+---
+##################################################################################
+#
+# NAME : MWP Firmware Upgrade on Power Edge R740/R640 servers
+# TASK : Upgrading Firmware for iDRAC,BIOS,CPLD, NIC XXV710/X710 and NIC l350  
+# Server : Dell R740/R640
+# MWP Version : 21.4.1
+# Playbook Version : 1.0
+# Playbook Owner : Mavenir MWP Platform CoD
+# Playbook Author : Rohit Mehta
+# Reviewed by : Hemant Patel
+# Approved by : Manish Sharma
+#
+###################################################################################
+
+- gather_facts: false
+  name: MWP Firmware Upgrade on Power Edge R740/R640 servers
+  user: root
+  hosts: idrac_hosts
+  become: yes
+  vars:
+    DELL_R740_FW_URL: http://10.69.88.201/dellfw/R740/
+    Dell_R740_iDRAC_FW: iDRAC-with-Lifecycle-Controller_Firmware_P8HC9_WN64_5.10.00.00_A00.EXE
+    Dell_R740_BIOS_FW: BIOS_4CRD2_WN64_2.12.2.EXE 
+    Dell_R740_CPLD_FW: CPLD_Firmware_G65GH_WN32_1.1.4_A00.EXE 
+    Dell_R740_NIC_X710_FW: Network_Firmware_M20T0_WN64_20.5.13_A00.EXE
+    Dell_R740_NIC_l350_FW: Network_Firmware_3XVMN_WN64_20.5.15_A00.EXE
+
+  vars_prompt:
+    name: "confirmation"
+    prompt: "Are you sure you want to run this playbook? Answer with 'YES'"
+    default: "NO"
+    private: no
+
+  tasks:
+
+    - debug: 
+        msg: iDRAC IP is {{ ansible_ssh_host }}
+
+    - name: Check Confirmation
+      fail: msg="Playbook run confirmation failed"
+      when: confirmation != "YES"
+
+    - name: Please Verify iDRAC IPs in above list as per Host Inventory file before continuing
+      pause:
+        minutes: 100000
+
+    - name: Clear All the Jobs
+      raw: racadm jobqueue delete --all
+      register: result_jobqueue
+    - debug: var=result_jobqueue.stdout_lines
+
+    - name: Upload DELL R740 iDRAC firmware file to server Firmware Inventory
+      raw: racadm update -f {{Dell_R740_iDRAC_FW}} -l {{DELL_R740_FW_URL}}
+      register: iDRAC_FW
+    - debug: var=iDRAC_FW.stdout_lines
+
+    - name: Check and wait for the port 22 to go down(iDrac will reset all the connections when there is an iDrac FW update is being applied
+      wait_for:
+        port: 22
+        host: '{{ansible_ssh_host}}'
+        delay: 60
+        sleep: 30
+        timeout: 1500
+        state: stopped
+      register: idrac_port_status
+      connection: local
+      ignore_errors: yes
+    - debug: var=idrac_port_status
+
+    - name: Fail when the timeout is reached for the port 22 to go down (after 30 minutes)
+      fail:
+        msg: "The timeout of 30 minutes is over for port 22 to go down on iDrac. Either updates or running slow/iDrac having tribule in
+resetting all the connections."
+      when: idrac_port_status.msg is defined and "Timeout" in idrac_port_status.msg
+
+    - name: Wait for the iDrac connection to be up and running with port 22 reachable
+      wait_for:
+        port: 22
+        host: '{{ansible_ssh_host}}'
+        delay: 60
+        sleep: 30
+        timeout: 180
+        state: started
+      register: idrac_port_start_status
+      connection: local
+      when: idrac_port_status.state is defined and idrac_port_status.state == "stopped"
+    - debug: var=idrac_port_start_status
+
+    - name: Wait for the iDrac to be fully up(180 seconds pause in playbook)
+      wait_for:
+        timeout: 180
+      delegate_to: localhost
+      when: idrac_port_start_status.state is defined and idrac_port_start_status.state == "started"
+
+    - name: Upload DELL R740 BIOS firmware file to server Firmware Inventory
+      raw: racadm update -f {{Dell_R740_BIOS_FW}} -l {{DELL_R740_FW_URL}}
+      register: BIOS_FW
+    - debug: var=BIOS_FW.stdout_lines
+
+    - name: Pause for 2 Minute so that Firmware upload will completed
+      pause:
+        minutes: 2
+
+    - name: Upload DELL R740 CPLD firmware file to server Firmware Inventory
+      raw: racadm update -f {{Dell_R740_CPLD_FW}} -l {{DELL_R740_FW_URL}}
+      register: CPLD_FW
+    - debug: var=CPLD_FW.stdout_lines
+
+    - name: Pause for 2 Minute so that Firmware upload will completed
+      pause:
+        minutes: 2
+
+    - name: Upload DELL R740 X710,XXV710 NIC firmware file to server Firmware Inventory
+      raw: racadm update -f {{Dell_R740_NIC_X710_FW}} -l {{DELL_R740_FW_URL}}
+      register: NIC_X710_FW
+    - debug: var=NIC_X710_FW.stdout_lines
+
+    - name: Pause for 2 Minute so that Firmware upload will completed
+      pause:
+        minutes: 2
+
+    - name: Upload l350 NIC firmware file to server Firmware Inventory
+      raw: racadm update -f {{Dell_R740_NIC_l350_FW}} -l {{DELL_R740_FW_URL}}
+      register: l350_NIC_FW
+    - debug: var=l350_NIC_FW.stdout_lines
+
+    - name: Pause for 2 Minute so that Firmware upload will completed
+      pause:
+        minutes: 2
+
+    - name: Job Queue View
+      raw: racadm jobqueue view
+      register: jobqueue
+    - debug: var=jobqueue.stdout_lines
+
+    - name: Powercycle the server to execute the job for Firmware Upgrade
+      raw: racadm serveraction powercycle
+      register: server_reboot
+      when: jobqueue != ''
+    - debug: var=server_reboot.stdout_lines
+
+    - name: Pause for 30 Minute so that Firmware will be completed
+      pause:
+        minutes: 30
+
+    - name: Firmware Details
+      raw: racadm swinventory
+      register: swinventory
+    - debug: var=swinventory.stdout_lines
+
+    - name: Job Queue View
+      raw: racadm jobqueue view
+      register: jobqueue
+    - debug: var=jobqueue.stdout_lines
+

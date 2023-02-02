@@ -1,0 +1,88 @@
+---
+##################################################################################
+#
+# NAME : SSD NON RAID Configuration on Dell Power Edge R740/R640 servers
+# TASK : Configure the SSD NON RAID except first two disks.
+# Server : Dell R740/R640
+# MWP Version : 21.4.1
+# Playbook Version : 1.0
+# Playbook Owner : Mavenir MWP Platform CoD
+# Playbook Author : Rohit Mehta
+# Reviewed by : Hemant Patel
+# Approved by : Manish Sharma
+#
+##################################################################################
+
+- gather_facts: false
+  name: SSD NON RAID Configuration on Dell Power Edge R740/R640 servers
+  hosts: idrac_hosts
+  user: root
+  become: yes
+  vars:
+    RAID_CONT: RAID.Slot.5-1
+
+  vars_prompt:
+    name: "confirmation"
+    prompt: "Are you sure you want to run this playbook? Answer with 'YES'"
+    default: "NO"
+    private: no
+
+  tasks:
+
+    - debug: 
+        msg: iDRAC IP is {{ ansible_ssh_host }}
+
+    - name: Check Confirmation
+      fail: msg="Playbook run confirmation failed"
+      when: confirmation != "YES"
+
+    - name: Please Verify iDRAC IPs in above list as per Host Inventory file before continuing 
+      pause:
+        minutes: 100000
+
+    - name: Clear All the Jobs
+      raw: racadm jobqueue delete --all
+      register: result_jobqueue
+    - debug: var=result_jobqueue.stdout_lines
+
+    - name: Convert Ready to SSD NON RAID disk
+      raw: storage converttononraid:{{item}}:Enclosure.Internal.0-1:{{RAID_CONT}}
+      with_items:
+      - "Disk.Bay.2"
+      - "Disk.Bay.3"
+      - "Disk.Bay.4"
+      - "Disk.Bay.5"
+
+    - name: Create a Job - Ready to SSD NON RAID disk
+      raw: racadm jobqueue create {{RAID_CONT}}
+      register: jobqueue
+    - debug: var=jobqueue.stdout_lines
+
+    - name: Powercycle the server to Ready to SSD NON RAID disk
+      raw: racadm serveraction powercycle
+      register: server_reboot
+      when: jobqueue != ''
+    - debug: var=server_reboot.stdout_lines
+
+    - name: Wait for Raedy to SSD NON RAID disk job to be completed
+      raw: racadm jobqueue view
+      register: jobstatus
+      until: jobstatus.stdout.find("Running") <= 0 and jobstatus.stdout.find("scheduled") <= 0 and jobstatus.stdout.find("New") <= 0
+      retries: 20
+      delay: 30
+      when: '"Server power operation initiated successfully" in server_reboot.stdout_lines'
+    - debug: var=jobstatus.stdout_lines
+ 
+    - name: Wait for 2 Minute to get PDISK and VDISK status
+      pause:
+        minutes: 2
+
+    - name: Checking pdisks status
+      raw: storage get pdisks -o -p Status,State,MediaType,Size
+      register: pdisks_status
+    - debug: var=pdisks_status.stdout_lines
+
+    - name: Checking vdisks status
+      raw: storage get vdisks -o -p Status,State,Layout,Size,MediaType
+      register: vdisks_status
+    - debug: var=vdisks_status.stdout_lines
